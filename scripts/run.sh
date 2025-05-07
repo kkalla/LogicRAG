@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Agentic-RAG evaluation script
-# This script runs evaluations on all available datasets with configurable RAG model
+# This script runs evaluations on all available datasets with configurable RAG model(s)
 
 # Terminal colors
 GREEN='\033[0;32m'
@@ -11,10 +11,11 @@ NC='\033[0m' # No Color
 
 # Configuration parameters
 MAX_ROUNDS=5
-TOP_K=3
+TOP_K=5
 EVAL_TOP_KS="5 10"
 LIMIT=50 # Number of questions to evaluate per dataset
-MODEL="light" # Default model: vanilla, agentic, light
+MODELS_TO_RUN_STR="vanilla agentic light" # Default model(s): vanilla, agentic, light (space-separated)
+TARGET_DATASETS_STR="" # Default: all datasets. Space separated e.g. "hotpotqa musique 2wikimultihopqa"
 
 # Output directory for results
 RESULTS_DIR="result"
@@ -29,7 +30,8 @@ usage() {
     echo "  -m, --max-rounds NUM     Set maximum rounds (default: $MAX_ROUNDS)"
     echo "  -k, --top-k NUM          Set top-k contexts (default: $TOP_K)"
     echo "  -l, --limit NUM          Set number of questions per dataset (default: $LIMIT)"
-    echo "  -r, --model MODEL        Set RAG model: vanilla, agentic, light (default: $MODEL)"
+    echo "  -r, --model MODELS       Set RAG model(s) (space-separated: vanilla, agentic, light; default: "$MODELS_TO_RUN_STR")"
+    echo "  -d, --datasets SETS      Set target dataset(s) (space-separated: hotpotqa, musique, 2wikimultihopqa; default: all)"
     echo ""
     exit 1
 }
@@ -53,7 +55,11 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         -r|--model)
-            MODEL="$2"
+            MODELS_TO_RUN_STR="$2"
+            shift 2
+            ;;
+        -d|--datasets)
+            TARGET_DATASETS_STR="$2"
             shift 2
             ;;
         *)
@@ -63,62 +69,97 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate RAG model
-if [[ "$MODEL" != "vanilla" && "$MODEL" != "agentic" && "$MODEL" != "light" ]]; then
-    echo "Invalid RAG model: $MODEL. Must be 'vanilla', 'agentic', or 'light'."
-    usage
-fi
-
 echo -e "${GREEN}Starting Agentic-RAG evaluations...${NC}"
-echo -e "Model: $MODEL, Max rounds: $MAX_ROUNDS, Top-K: $TOP_K, Eval Top-Ks: $EVAL_TOP_KS, Questions per dataset: $LIMIT"
+echo -e "Models to run: $MODELS_TO_RUN_STR"
+echo -e "Target datasets: ${TARGET_DATASETS_STR:-All}"
+echo -e "Max rounds: $MAX_ROUNDS, Top-K: $TOP_K, Eval Top-Ks: $EVAL_TOP_KS, Questions per dataset: $LIMIT"
 echo ""
 
+# Function to check if a dataset should be run
+should_run_dataset() {
+    local dataset_key=$1
+    if [[ -z "$TARGET_DATASETS_STR" ]]; then
+        return 0 # True, run it if TARGET_DATASETS_STR is empty (run all)
+    fi
+    for ds_token in $TARGET_DATASETS_STR; do
+        if [[ "$ds_token" == "$dataset_key" ]]; then
+            return 0 # True, dataset_key found in the list
+        fi
+    done
+    return 1 # False, dataset_key not found
+}
+
 # Function to run evaluation on a dataset
+# MODEL variable will be set by the outer loop for each model iteration
 run_evaluation() {
     local dataset=$1
     local corpus=$2
-    local output=$3
-    local dataset_name=$(basename "$dataset" .json)
+    local output_filename=$3 # e.g., "${MODEL}_hotpotqa_evaluation.json"
+    local dataset_name_log=$(basename "$dataset" .json)
     
-    echo -e "${BLUE}Evaluating ${dataset_name} with ${MODEL} model${NC}"
+    echo -e "${BLUE}Evaluating ${dataset_name_log} with ${MODEL} model${NC}"
     echo "Dataset: $dataset"
     echo "Corpus: $corpus"
-    echo "Output: $output"
+    echo "Output: $output_filename"
+    
+    # Splitting EVAL_TOP_KS into an array to pass as individual arguments
+    read -ra EVAL_TOP_KS_ARRAY <<< "$EVAL_TOP_KS"
+    eval_top_ks_args=""
+    for k in "${EVAL_TOP_KS_ARRAY[@]}"; do
+        eval_top_ks_args+=" $k"
+    done
     
     python run.py \
         --dataset "$dataset" \
         --corpus "$corpus" \
         --model "$MODEL" \
-        --max-rounds $MAX_ROUNDS \
-        --top-k $TOP_K \
-        --eval-top-ks $EVAL_TOP_KS \
-        --limit $LIMIT \
-        --output "$output"
+        --max-rounds "$MAX_ROUNDS" \
+        --top-k "$TOP_K" \
+        --eval-top-ks $eval_top_ks_args \
+        --limit "$LIMIT" \
+        --output "$output_filename"
     
-    echo -e "${GREEN}Evaluation complete for $dataset_name${NC}"
+    echo -e "${GREEN}Evaluation complete for $dataset_name_log using model $MODEL${NC}"
     echo ""
 }
 
-# HotpotQA dataset
-echo -e "${YELLOW}=== HotpotQA Dataset ===${NC}"
-run_evaluation \
-    "dataset/hotpotqa.json" \
-    "dataset/hotpotqa_corpus.json" \
-    "${MODEL}_hotpotqa_evaluation.json"
+# Loop through each model specified
+for MODEL in $MODELS_TO_RUN_STR; do
+    # Validate RAG model
+    if [[ "$MODEL" != "vanilla" && "$MODEL" != "agentic" && "$MODEL" != "light" ]]; then
+        echo -e "${YELLOW}Invalid RAG model specified: $MODEL. Must be 'vanilla', 'agentic', or 'light'. Skipping.${NC}"
+        continue
+    fi
 
-# MuSiQue dataset
-echo -e "${YELLOW}=== MuSiQue Dataset ===${NC}"
-run_evaluation \
-    "dataset/musique.json" \
-    "dataset/musique_corpus.json" \
-    "${MODEL}_musique_evaluation.json"
+    echo -e "${GREEN}Processing evaluations for model: $MODEL${NC}"
 
-# 2WikiMultihopQA dataset
-echo -e "${YELLOW}=== 2WikiMultihopQA Dataset ===${NC}"
-run_evaluation \
-    "dataset/2wikimultihopqa.json" \
-    "dataset/2wikimultihopqa_corpus.json" \
-    "${MODEL}_2wikimultihopqa_evaluation.json"
+    # HotpotQA dataset
+    if should_run_dataset "hotpotqa"; then
+        echo -e "${YELLOW}=== HotpotQA Dataset (Model: $MODEL) ===${NC}"
+        run_evaluation \
+            "dataset/hotpotqa.json" \
+            "dataset/hotpotqa_corpus.json" \
+            "${MODEL}_hotpotqa_evaluation.json"
+    fi
 
-echo -e "${GREEN}All evaluations complete!${NC}"
-echo -e "Results saved with prefix '${MODEL}_' in the $RESULTS_DIR directory."
+    # MuSiQue dataset
+    if should_run_dataset "musique"; then
+        echo -e "${YELLOW}=== MuSiQue Dataset (Model: $MODEL) ===${NC}"
+        run_evaluation \
+            "dataset/musique.json" \
+            "dataset/musique_corpus.json" \
+            "${MODEL}_musique_evaluation.json"
+    fi
+
+    # 2WikiMultihopQA dataset
+    if should_run_dataset "2wikimultihopqa"; then
+        echo -e "${YELLOW}=== 2WikiMultihopQA Dataset (Model: $MODEL) ===${NC}"
+        run_evaluation \
+            "dataset/2wikimultihopqa.json" \
+            "dataset/2wikimultihopqa_corpus.json" \
+            "${MODEL}_2wikimultihopqa_evaluation.json"
+    fi
+done
+
+echo -e "${GREEN}All specified evaluations complete!${NC}"
+echo -e "Results saved in the $RESULTS_DIR directory."

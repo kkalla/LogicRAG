@@ -22,6 +22,9 @@ from config.config import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Initialize token cost tracking
+TOKEN_COST = {"prompt": 0, "completion": 0}
+
 # Configure OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -50,6 +53,7 @@ Format your response as:
 )
 def get_response_with_retry(prompt: str, temperature: float = 0.0) -> str:
     """Get response from OpenAI API with retry logic."""
+    global TOKEN_COST
     try:
         messages = [
             {"role": "system", "content": "You are a helpful assistant."},
@@ -61,6 +65,11 @@ def get_response_with_retry(prompt: str, temperature: float = 0.0) -> str:
             temperature=temperature,
             max_tokens=DEFAULT_MAX_TOKENS
         )
+        # Update token costs
+        if response.usage:
+            TOKEN_COST["prompt"] += response.usage.prompt_tokens
+            TOKEN_COST["completion"] += response.usage.completion_tokens
+            
         return response.choices[0].message.content.strip()
     except Exception as e:
         logger.error(f"Error in get_response_with_retry: {str(e)}")

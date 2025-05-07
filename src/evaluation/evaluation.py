@@ -9,7 +9,8 @@ from src.utils.utils import (
     normalize_answer, 
     evaluate_with_llm, 
     string_based_evaluation,
-    save_results
+    save_results,
+    TOKEN_COST
 )
 from src.models.vanilla_rag import VanillaRAG
 from src.models.agentic_rag import AgenticRAG
@@ -146,6 +147,10 @@ class RAGEvaluator:
         """Run evaluation of a single model on the given evaluation data."""
         results = []
         
+        # Reset token costs for the current model evaluation
+        TOKEN_COST["prompt"] = 0
+        TOKEN_COST["completion"] = 0
+        
         # Evaluation metrics
         total_questions = len(eval_data)
         
@@ -249,6 +254,16 @@ class RAGEvaluator:
         if self.model_name in ["agentic", "light"]:
             organized_metrics["performance"]["avg_rounds"] = avg_metrics["avg_rounds"]
         
+        # Add token cost metrics
+        if total_questions > 0:
+            organized_metrics["performance"]["avg_prompt_tokens"] = TOKEN_COST["prompt"] / total_questions
+            organized_metrics["performance"]["avg_completion_tokens"] = TOKEN_COST["completion"] / total_questions
+            organized_metrics["performance"]["avg_total_tokens"] = (TOKEN_COST["prompt"] + TOKEN_COST["completion"]) / total_questions
+        else:
+            organized_metrics["performance"]["avg_prompt_tokens"] = 0
+            organized_metrics["performance"]["avg_completion_tokens"] = 0
+            organized_metrics["performance"]["avg_total_tokens"] = 0
+        
         # Add top-k coverage metrics
         for k in self.eval_top_ks:
             organized_metrics["retrieval"][f"top{k}_coverage"] = avg_metrics[f"top{k}_coverage"]
@@ -279,6 +294,11 @@ class RAGEvaluator:
             logger.info(f"Average rounds per question: {avg_metrics['avg_rounds']:.2f}")
         else:
             logger.info(f"Average time per question: {avg_metrics['avg_time']:.2f} seconds")
+        
+        # Log token costs
+        logger.info(f"Average prompt tokens per question: {organized_metrics['performance']['avg_prompt_tokens']:.2f}")
+        logger.info(f"Average completion tokens per question: {organized_metrics['performance']['avg_completion_tokens']:.2f}")
+        logger.info(f"Average total tokens per question: {organized_metrics['performance']['avg_total_tokens']:.2f}")
         
         # 1. String-based metrics
         logger.info("\n1. String-based Metrics:")
