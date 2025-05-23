@@ -3,7 +3,11 @@ import logging
 import time
 from typing import List, Dict, Tuple, Any
 from src.models.base_rag import BaseRAG
-from src.utils.utils import get_response_with_retry, REFLECTION_PROMPT
+from src.utils.utils import get_response_with_retry, REFLECTION_PROMPT, fix_json_response
+from colorama import Fore, Style, init
+
+# Initialize colorama
+init()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +23,7 @@ class AgenticRAG(BaseRAG):
         """Initialize the AgenticRAG system."""
         super().__init__(corpus_path, cache_dir)
         self.max_rounds = 3  # Default max rounds for iterative retrieval
+        self.MODEL_NAME = "AgenticRAG"
     
     def set_max_rounds(self, max_rounds: int):
         """Set the maximum number of retrieval rounds."""
@@ -35,50 +40,47 @@ Retrieved Context:
 
 {REFLECTION_PROMPT}"""
             
-            try:
-                response = get_response_with_retry(prompt)
-                
-                # Clean up response to ensure it's valid JSON
-                response = response.strip()
-                
-                # Remove any markdown code block markers
-                response = response.replace('```json', '').replace('```', '')
-                
-                # Try to find JSON-like content within the response
-                import re
-                json_match = re.search(r'\{.*\}', response, re.DOTALL)
-                if json_match:
-                    response = json_match.group()
-                
-                # Parse the cleaned response
-                result = json.loads(response)
-                
-                # Validate required fields
-                required_fields = ["can_answer", "missing_info", "subquery", "current_understanding"]
-                if not all(field in result for field in required_fields):
-                    raise ValueError("Missing required fields")
-                
-                # Ensure boolean type for can_answer
-                result["can_answer"] = bool(result["can_answer"])
-                
-                # Ensure non-empty subquery
-                if not result["subquery"]:
-                    result["subquery"] = question
-                
-                return result
-                
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON parsing error: {e}")
-                logger.error(f"Raw response: {response}")
+            response = get_response_with_retry(prompt)
+            
+            # Clean up response to ensure it's valid JSON
+            response = response.strip()
+            
+            # Remove any markdown code block markers
+            response = response.replace('```json', '').replace('```', '')
+            
+            # Try to find JSON-like content within the response
+            import re
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if json_match:
+                response = json_match.group()
+            
+            # Parse the cleaned response using fix_json_response
+            result = fix_json_response(response)
+            if result is None:
                 return {
                     "can_answer": True,
                     "missing_info": "",
                     "subquery": question,
                     "current_understanding": "Failed to parse reflection response."
                 }
+            
+            # Validate required fields
+            required_fields = ["can_answer", "missing_info", "subquery", "current_understanding"]
+            if not all(field in result for field in required_fields):
+                logger.error(f"{Fore.RED}Missing required fields in response: {response}{Style.RESET_ALL}")
+                raise ValueError("Missing required fields")
+            
+            # Ensure boolean type for can_answer
+            result["can_answer"] = bool(result["can_answer"])
+            
+            # Ensure non-empty subquery
+            if not result["subquery"]:
+                result["subquery"] = question
+            
+            return result
                 
         except Exception as e:
-            logger.error(f"Error in analyze_completeness: {e}")
+            logger.error(f"{Fore.RED}Error in analyze_completeness: {e}{Style.RESET_ALL}")
             return {
                 "can_answer": True,
                 "missing_info": "",
@@ -110,7 +112,7 @@ Ans: """
             
             return get_response_with_retry(prompt)
         except Exception as e:
-            logger.error(f"Error generating answer: {e}")
+            logger.error(f"{Fore.RED}Error generating answer: {e}{Style.RESET_ALL}")
             return ""
 
     def answer_question(self, question: str) -> Tuple[str, List[str], int]:
@@ -119,6 +121,8 @@ Ans: """
         round_count = 0
         current_query = question
         retrieval_history = []
+
+        logger.info(f"\n\n{Fore.CYAN}{self.MODEL_NAME} answering: {question}{Style.RESET_ALL}\n\n")
         
         while round_count < self.max_rounds:
             round_count += 1

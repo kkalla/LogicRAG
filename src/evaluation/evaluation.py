@@ -164,7 +164,11 @@ class RAGEvaluator:
             "model": self.model_name,
             "metrics": metrics,
             "results": results,
-            "processed_count": processed_count
+            "processed_count": processed_count,
+            "token_cost": {
+                "prompt": TOKEN_COST["prompt"],
+                "completion": TOKEN_COST["completion"]
+            }
         }
         
         checkpoint_path = self._get_checkpoint_path(output_file)
@@ -182,6 +186,12 @@ class RAGEvaluator:
         try:
             with open(checkpoint_path, 'r', encoding='utf-8') as f:
                 checkpoint = json.load(f)
+            
+            # Restore token costs
+            if "token_cost" in checkpoint:
+                TOKEN_COST["prompt"] = checkpoint["token_cost"]["prompt"]
+                TOKEN_COST["completion"] = checkpoint["token_cost"]["completion"]
+                logger.info(f"Restored token costs - Prompt: {TOKEN_COST['prompt']}, Completion: {TOKEN_COST['completion']}")
             
             logger.info(f"Loaded checkpoint: {checkpoint['processed_count']} questions already processed")
             return checkpoint["results"], checkpoint["metrics"], checkpoint["processed_count"]
@@ -209,7 +219,7 @@ class RAGEvaluator:
                     evaluation_summary = json.load(f)
                 return evaluation_summary
         
-        # If starting fresh, initialize metrics
+        # If starting fresh, initialize metrics and reset token costs
         if not metrics:
             # Reset token costs for the current model evaluation
             TOKEN_COST["prompt"] = 0
@@ -232,6 +242,8 @@ class RAGEvaluator:
             # Add rounds tracking for agentic models
             if self.model_name in ["agentic", "light"]:
                 metrics["total_rounds"] = 0
+        else:
+            logger.info(f"Restored token costs - Prompt: {TOKEN_COST['prompt']}, Completion: {TOKEN_COST['completion']}")
         
         # Evaluation metrics
         total_questions = len(eval_data) + processed_count

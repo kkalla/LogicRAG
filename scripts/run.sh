@@ -13,9 +13,9 @@ NC='\033[0m' # No Color
 MAX_ROUNDS=5
 TOP_K=5
 EVAL_TOP_KS="5 10"
-LIMIT=50 # Number of questions to evaluate per dataset
-MODELS_TO_RUN_STR="agentic" # Default model(s): vanilla, agentic, light (space-separated)
-TARGET_DATASETS_STR="2wikimultihopqa" # Default: all datasets. Space separated e.g. "hotpotqa musique 2wikimultihopqa"
+LIMIT=0 # Number of questions to evaluate per dataset, "0" for all questions
+MODELS_TO_RUN_STR="light" # Default model(s): vanilla, agentic, light (space-separated)
+TARGET_DATASETS_STR="" # Default: all datasets. Space separated e.g. "hotpotqa musique 2wikimultihopqa"
 CHECKPOINT_INTERVAL=5 # Save checkpoint every 5 questions
 
 # Output directory for results

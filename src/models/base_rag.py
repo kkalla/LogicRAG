@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 class BaseRAG:
     def __init__(self, corpus_path: str = None, cache_dir: str = CACHE_DIR):
         """Initialize the BaseRAG system."""
+        self.MODEL_NAME = "BaseRAG"
         self.cache_dir = cache_dir
         os.makedirs(cache_dir, exist_ok=True)
         os.makedirs(RESULT_DIR, exist_ok=True)

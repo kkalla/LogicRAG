@@ -2,6 +2,10 @@ import logging
 from typing import List, Dict, Tuple
 from src.models.base_rag import BaseRAG
 from src.utils.utils import get_response_with_retry
+from colorama import Fore, Style, init
+
+# Initialize colorama
+init()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -16,7 +20,8 @@ class VanillaRAG(BaseRAG):
     def __init__(self, corpus_path: str = None, cache_dir: str = "./cache"):
         """Initialize the VanillaRAG system."""
         super().__init__(corpus_path, cache_dir)
-    
+        self.MODEL_NAME = "VanillaRAG"
+
     def retrieve(self, query: str) -> List[str]:
         """Retrieve documents for the given query using vector similarity."""
         return super().retrieve(query)
@@ -27,6 +32,7 @@ class VanillaRAG(BaseRAG):
         1. Retrieve relevant contexts
         2. Pass the question and contexts to the LLM to generate an answer
         """
+        logger.info(f"\n\n{Fore.CYAN}{self.MODEL_NAME} answering: {question}{Style.RESET_ALL}\n\n")
         # Retrieve relevant contexts
         contexts = self.retrieve(question)
         
