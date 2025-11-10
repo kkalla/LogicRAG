@@ -1,21 +1,21 @@
-# LogicRAG: Graph-based Agentic RAG
+# [AAAI'26] LogicRAG: A Graph-based Agentic RAG framework
 <div align="center">
     <a href="http://makeapullrequest.com"><img src="https://img.shields.io/badge/PRs-welcome-green.svg"/></a>
       <a href="http://makeapullrequest.com"><img src="https://img.shields.io/github/last-commit/chensyCN/Agentic-RAG?color=blue"/></a>
       <a href="https://arxiv.org/abs/2508.06105"><img src="https://img.shields.io/badge/paper-available-brightgreen"/></a>
 </div>
 
-LogicRAG constructs query logic dependency graphs to guide structured retrieval adaptively, enabling test-time scaling of graphRAG on large/dynamic corpora. This work has been accepted to [AAAI'26](https://openreview.net/forum?id=ov1bwU35Mf).
+LogicRAG enables structured retrieval without building knowledge graphs on corpora. By constructing query logic dependency graphs to guide structured retrieval adaptively, it enables test-time scaling of graphRAG on large/dynamic knowledge bases. This work has been accepted to [AAAI'26](https://openreview.net/forum?id=ov1bwU35Mf), with an updated version available on [Arxiv](https://arxiv.org/abs/2508.06105).
 
 
 ![System Architecture](figs/framework.png)
 
 ## 🌟 Key Features
 
-- **❶ Logic Dependency Analysis** - Convert complex questions into logical dependency graphs for planning multi-step retrieval.
-- **❷ Graph Reasoning Linearization** - Linearize complex graph reasoning into sequential subproblem solution while maintaining logic-coherence.
-- **❸ Efficiency** - Efficient schedualing via graph pruning, and context-length optimization via rolling memory.
-- **❹ Interpretable Results** - Provides clear reasoning paths and dependency analysis for better explainability.
+- **❶ Logic Dependency Analysis**: Convert complex questions into logical dependency graphs for planning multi-step retrieval.
+- **❷ Graph Reasoning Linearization**: Linearize complex graph reasoning into sequential subproblem solution while maintaining logic-coherence.
+- **❸ Efficiency**: Efficient scheduling via graph pruning, and context-length optimization via rolling memory.
+- **❹ Interpretable Results**: Provides clear reasoning paths and dependency analysis for better explainability.
 
 
 ## 🚀 Quick Start
