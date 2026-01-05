@@ -27,22 +27,23 @@ class LogicRAG(BaseRAG):
         """Set the maximum number of retrieval rounds."""
         self.max_rounds = max_rounds
     
-    def refine_summary_with_context(self, question: str, new_contexts: List[str], 
+    def refine_summary_with_context(self, question: str, new_contexts: List[str],
                                   current_summary: str = "") -> str:
         """
         Generate a new summary or refine an existing one based on newly retrieved contexts.
-        
+
         Args:
             question: The original question
             new_contexts: Newly retrieved context chunks
             current_summary: Current information summary (if any)
-            
+
         Returns:
             A concise summary of all relevant information so far
         """
         try:
             context_text = "\n".join(new_contexts)
-            
+            logger.info(f"[refine_summary_with_context] Processing {len(new_contexts)} contexts")
+
             if not current_summary:
                 # Generate initial summary
                 prompt = f"""Please create a concise summary of the following information as it relates to answering this question:
@@ -79,8 +80,10 @@ Your refined summary should:
 5. Maintain specific details, dates, numbers, and names that may be relevant
 
 Refined summary:"""
-            
+
+            logger.info(f"[refine_summary_with_context] Calling get_response_with_retry...")
             summary = get_response_with_retry(prompt)
+            logger.info(f"[refine_summary_with_context] Got response, length={len(summary)}")
             return summary
             
         except Exception as e:
@@ -93,36 +96,54 @@ Refined summary:"""
     def warm_up_analysis(self, question: str, info_summary: str) -> Dict:
         """
         This is a warm-up analysis, which is used to analyze if the question can be answered with simple fact retrieval, without any dependency analysis.
-        
+
         Args:
             question: The original question
             info_summary: Current information summary
-            
+
         Returns:
             Dictionary with analysis results
         """
         try:
-            prompt = f"""Question: {question}
+            prompt = f"""You are a JSON API. Respond ONLY with valid JSON, no other text.
+
+Question: {question}
 
 Available Information:
 {info_summary}
 
-Based on the information provided, please analyze:
-1. Can the question be answered completely with this information? (Yes/No)
-2. What specific information is missing, if any?
-3. What specific question should we ask to find the missing information?
-4. Summarize our current understanding based on available information.
-5. What are the key dependencies needed to answer this question?
-6. Why is information missing? (max 20 words)
+Analyze and return JSON with this exact structure:
+{{
+  "can_answer": true or false,
+  "missing_info": "what information is missing",
+  "subquery": "search query for missing info",
+  "current_understanding": "summary of what we know",
+  "dependencies": ["dependency1", "dependency2"],
+  "missing_reason": "why info is missing (max 20 words)"
+}}
 
-Please format your response as a JSON object with these keys:
-- "can_answer": boolean
-- "missing_info": string
-- "subquery": string
-- "current_understanding": string
-- "dependencies": list of strings (key information dependencies)
-- "missing_reason": string (brief explanation why info is missing, max 20 words)"""
-            
+Example if can_answer=true:
+{{
+  "can_answer": true,
+  "missing_info": "",
+  "subquery": "",
+  "current_understanding": "The PARA method is a note-taking system...",
+  "dependencies": [],
+  "missing_reason": ""
+}}
+
+Example if can_answer=false:
+{{
+  "can_answer": false,
+  "missing_info": "Need definition of PARA",
+  "subquery": "What is PARA method",
+  "current_understanding": "Question asks about PARA but no info found",
+  "dependencies": ["PARA definition", "PARA components"],
+  "missing_reason": "Context lacks PARA details"
+}}
+
+Respond ONLY with the JSON object:"""
+
             response = get_response_with_retry(prompt)
             
             # Clean up response to ensure it's valid JSON
@@ -190,31 +211,40 @@ Please format your response as a JSON object with these keys:
         """
 
         try:
-            prompt = f"""
-            We pre-parsed the question into a list of dependencies, and the dependencies are sorted in a topological order, below is the question, the information summary, and the decomposed dependencies:
+            prompt = f"""You are a JSON API. Respond ONLY with valid JSON, no other text.
 
-            Question: {question}
+Question: {question}
 
-            Available Information:
-            {info_summary}
+Available Information:
+{info_summary}
 
-            Decomposed dependencies:
-            {dependencies}
+Decomposed dependencies:
+{dependencies}
 
-            Current dependency to be answered:
-            {dependencies[idx]}
+Current dependency to be answered:
+{dependencies[idx]}
 
-            Please analyze the question and the information summary, and the decomposed dependencies, and answer the following questions:
-            Please analyze:
-            1. Can the question be answered completely with this information? (Yes/No)
-            2. Summarize our current understanding based on available information.
+Return JSON with this exact structure:
+{{"can_answer": true or false, "current_understanding": "summary of what we know"}}
 
-            Please format your response as a JSON object with these keys:
-            - "can_answer": boolean
-            - "current_understanding": string
-            """
+Example if can_answer=true:
+{{"can_answer": true, "current_understanding": "Based on the information, PARA is..."}}
+
+Example if can_answer=false:
+{{"can_answer": false, "current_understanding": "Still need more information about..."}}
+
+Respond ONLY with the JSON object:"""
+
             response = get_response_with_retry(prompt)
             result = fix_json_response(response)
+
+            # Handle None case from fix_json_response failure
+            if result is None:
+                return {
+                    "can_answer": True,
+                    "current_understanding": "Failed to parse dependency analysis response."
+                }
+
             return result
         except Exception as e:
             logger.error(f"{Fore.RED}Error in dependency_aware_rag: {e}{Style.RESET_ALL}")
@@ -290,21 +320,41 @@ Ans: """
 
 
         # Step 1: generate the dependency pairs by prompting LLMs
-        prompt = f"""
-        Given the question:
-        Question: {query}
+        prompt = f"""You are a JSON API. Respond ONLY with valid JSON, no other text.
 
-        and its decomposed dependencies:
-        Dependencies: {dependencies}
+Question: {query}
 
-        Please output the dependency pairs that dependency A relies on dependency B, if any. If no dependency pairs are found, output an empty list.
+Dependencies: {dependencies}
 
-        format your response as a JSON object with these keys:
-        - "dependency_pairs": list of tuples of integers
-        """
+Output dependency pairs where dependency A relies on dependency B.
+Format: [A, B] means A depends on B.
+
+Return JSON with this exact structure:
+{{"dependency_pairs": [[0, 1], [2, 0]]}}
+
+Example with dependencies:
+- "The capital of France"
+- "The mayor of this capital"
+
+The mayor depends on knowing the capital first, so:
+{{"dependency_pairs": [[1, 0]]}}
+
+If no dependencies exist:
+{{"dependency_pairs": []}}
+
+Respond ONLY with the JSON object:"""
+
+        logger.info(f"[_sort_dependencies] Calling get_response_with_retry for dependency pairs...")
         response = get_response_with_retry(prompt)
+        logger.info(f"[_sort_dependencies] Got response: {response[:100] if response else 'empty'}")
         result = fix_json_response(response)
-        dependency_pairs = result["dependency_pairs"]
+
+        # Handle None case from fix_json_response failure
+        if result is None:
+            logger.error("Failed to parse dependency pairs response, using empty pairs")
+            dependency_pairs = []
+        else:
+            dependency_pairs = result.get("dependency_pairs", [])
 
         # Step 2: use graph-based algorithm to sort the dependencies in a topological order
         sorted_dependencies = self._topological_sort(dependencies, dependency_pairs)
@@ -380,23 +430,29 @@ Ans: """
         retrieved_chunks_set = set() if self.filter_repeats else None  # Track retrieved chunks if filtering
         
         print(f"\n\n{Fore.CYAN}{self.MODEL_NAME} answering: {question}{Style.RESET_ALL}\n\n")
-        
+
         #===============================================
         #== Stage 1: warm up retrieval ==
+        print(f"[DEBUG] Starting Stage 1: warm up retrieval...")
         if self.filter_repeats:
             new_contexts = self._retrieve_with_filter(question, retrieved_chunks_set)
             for chunk in new_contexts:
                 retrieved_chunks_set.add(chunk)
         else:
+            print(f"[DEBUG] Retrieving contexts for question...")
             new_contexts = self.retrieve(question)
-        last_contexts = new_contexts  
+            print(f"[DEBUG] Retrieved {len(new_contexts)} contexts")
+        last_contexts = new_contexts
+        print(f"[DEBUG] Refining summary with context...")
         info_summary = self.refine_summary_with_context(
-            question, 
-            new_contexts, 
+            question,
+            new_contexts,
             info_summary
         )
+        print(f"[DEBUG] Summary refined. Starting warm_up_analysis...")
 
         analysis = self.warm_up_analysis(question, info_summary)
+        print(f"[DEBUG] warm_up_analysis complete. can_answer={analysis.get('can_answer')}")
 
         if analysis["can_answer"]:
             # In this case, the question can be answered with simple fact retrieval, without any dependency analysis
@@ -408,39 +464,51 @@ Ans: """
         else:
             logger.info(f"Warm-up analysis indicate the requirement of deeper reasoning-enhanced RAG. Now perform analysis with logical dependency graph.")
             logger.info(f"Dependencies: {', '.join(analysis.get('dependencies', []))}")
+            print(f"[DEBUG] Starting Stage 2: dependency analysis...")
 
             # sort the dependencies, by first constructing the dependency graphs, then use topological sort to get the sorted dependencies
+            print(f"[DEBUG] Calling _sort_dependencies...")
             sorted_dependencies = self._sort_dependencies(analysis["dependencies"], question)
+            print(f"[DEBUG] _sort_dependencies returned: {sorted_dependencies}")
             dependency_analysis_history.append({"sorted_dependencies": sorted_dependencies})
             logger.info(f"Sorted dependencies: {sorted_dependencies}\n\n")
         #===============================================
         #== Stage 2: agentic iterative retrieval ==
         idx = 0 # used to track the current dependency index
+        print(f"[DEBUG] Starting Stage 2 loop. max_rounds={self.max_rounds}, dependencies={len(sorted_dependencies)}")
 
         while round_count < self.max_rounds and idx < len(sorted_dependencies):
             round_count += 1
-            
+            print(f"[DEBUG] Round {round_count}: idx={idx}, max_rounds={self.max_rounds}")
+
             current_query = sorted_dependencies[idx]
+            print(f"[DEBUG] Current query: {current_query}")
             if self.filter_repeats:
                 new_contexts = self._retrieve_with_filter(current_query, retrieved_chunks_set)
                 for chunk in new_contexts:
                     retrieved_chunks_set.add(chunk)
             else:
+                print(f"[DEBUG] Retrieving for current query...")
                 new_contexts = self.retrieve(current_query)
+                print(f"[DEBUG] Got {len(new_contexts)} contexts")
             last_contexts = new_contexts  # Save current contexts
-            
-            
+
+
             # Generate or refine information summary with new contexts
+            print(f"[DEBUG] Refining summary with new contexts...")
             info_summary = self.refine_summary_with_context(
-                question, 
-                new_contexts, 
+                question,
+                new_contexts,
                 info_summary
             )
-            
+            print(f"[DEBUG] Summary refined")
+
             logger.info(f"Agentic retrieval at round {round_count}")
             logger.info(f"current query: {current_query}")
-            
+
+            print(f"[DEBUG] Calling dependency_aware_rag...")
             analysis = self.dependency_aware_rag(question, info_summary, sorted_dependencies, idx)
+            print(f"[DEBUG] dependency_aware_rag returned: can_answer={analysis.get('can_answer')}")
 
             retrieval_history.append({
                 "round": round_count,
@@ -456,17 +524,22 @@ Ans: """
 
             if analysis["can_answer"]:
                 # Generate and return final answer
+                print(f"[DEBUG] Generating final answer...")
                 answer = self.generate_answer(question, info_summary)
+                print(f"[DEBUG] Final answer: {answer}")
                 # Store dependency analysis history for evaluation access
                 self.last_dependency_analysis = dependency_analysis_history
                 # We return the last retrieved contexts for evaluation purposes
                 return answer, last_contexts, round_count
             else:
                 idx += 1
-        
+
         # If max rounds reached, generate best possible answer
+        print(f"[DEBUG] Exiting loop. round_count={round_count}, idx={idx}, max_rounds={self.max_rounds}")
         logger.info(f"Reached maximum rounds ({self.max_rounds}). Generating final answer...")
+        print(f"[DEBUG] Generating best possible answer...")
         answer = self.generate_answer(question, info_summary)
+        print(f"[DEBUG] Final answer: {answer}")
         # Store dependency analysis history for evaluation access
         self.last_dependency_analysis = dependency_analysis_history
         return answer, last_contexts, round_count

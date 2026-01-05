@@ -11,7 +11,7 @@ from src.models.logic_rag import LogicRAG
 
 
 # Configure logging
-logging.basicConfig(level=logging.WARNING, 
+logging.basicConfig(level=logging.INFO,
                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 

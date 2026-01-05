@@ -1,4 +1,4 @@
-
+*.json
 # Project-specific directory
 result/
 
